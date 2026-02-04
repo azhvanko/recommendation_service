@@ -19,9 +19,8 @@ USER_ID_QUERY = t.Annotated[
     Query(
         ...,
         ge=1,
-        description="User uid",
+        description="User id",
         examples=[100],
-        alias="user_id",
     ),
 ]
 recommendations_router = APIRouter(prefix="/recommendations", tags=["recommendations",],)
