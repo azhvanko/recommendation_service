@@ -1,0 +1,90 @@
+name: recommendation_service
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: recommendation_service:latest
+    hostname: api
+    container_name: recommendation_service_api
+    restart: unless-stopped
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 1024MB
+        reservations:
+          memory: 256MB
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+        failure_action: rollback
+    ports:
+      - "127.0.0.1:${API_HOST_PORT}:${API_CONTAINER_PORT}"
+    networks:
+      - recommendation_service
+    volumes:
+      - .:/app
+    depends_on:
+      - clickhouse
+    entrypoint: |
+      bash -c '
+        /app/data/scripts/wait-services.sh --clickhouse && \
+        /usr/local/bin/gunicorn --chdir /app --config /app/gunicorn.conf.py
+      '
+    env_file:
+      - .env
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://0.0.0.0:${API_CONTAINER_PORT}/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.12.5-alpine
+    hostname: clickhouse
+    container_name: recommendation_service_clickhouse
+    restart: unless-stopped
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 1024MB
+          cpus: '1.0'
+        reservations:
+          memory: 256MB
+          cpus: '0.5'
+    ulimits:
+      nofile:
+        hard: 262144
+        soft: 262144
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: ${CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT}
+    networks:
+      - recommendation_service
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - ./data/scripts/clickhouse/init.sh:/docker-entrypoint-initdb.d/init.sh
+    ports:
+      - "127.0.0.1:${CLICKHOUSE_HOST_PORT}:${CLICKHOUSE_CONTAINER_PORT}"
+      - "127.0.0.1:${CLICKHOUSE_HOST_HTTP_PORT}:${CLICKHOUSE_CONTAINER_HTTP_PORT}"
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:${CLICKHOUSE_CONTAINER_HTTP_PORT}/ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  recommendation_service:
+    name: recommendation_service
+    driver: bridge
+
+volumes:
+  clickhouse_data:
+    name: recommendation_service_clickhouse_data
+    driver: local
